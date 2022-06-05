@@ -14,6 +14,9 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r, warning=FALSE}
 if(!require(tidyverse)) install.packages("tidyverse")
 if(!require(readr)) install.packages("readr")
+if(!require(corrplot)) install.packages("corrplot")
+if(!require(caret)) install.packages("caret")
+if(!require(VGAM)) install.packages("VGAM")
 
 ```
 
@@ -85,4 +88,104 @@ corrplot(tdr,type = "upper", order = "hclust")
 
   The criteria in this project will be using the method of log loss.
   
+```{r , warning=FALSE, message=FALSE}
+library(caret)
+set.seed(28)
+head(mtcars)
+mtcars$vs <- as.factor(mtcars$vs)
+train_ind <- createDataPartition(mtcars$vs, p = .8, 
+                                  list = FALSE, times = 1)
+mtcars_train <- mtcars[train_ind,]
+mtcars_test <- mtcars[-train_ind,]
 
+head(mtcars_train)
+head(mtcars_test)
+
+mtcars_glm_model <- train(form = vs ~ wt + disp,data = mtcars_train,
+  trControl = trainControl(method = "cv", number = 5),
+  method = "glm",family = "binomial")
+
+mtcars_glm_model$results
+
+```
+
+  Now let us calculate the accuracy and the probabilities of the given model above.
+  
+```{r , message=FALSE, warning=FALSE}
+calc_acc = function(actual, predicted) {
+  mean(actual == predicted)
+}
+
+head(predict(mtcars_glm_model, newdata = mtcars_test))
+
+calc_acc(actual = mtcars_test$vs,
+         predicted = predict(mtcars_glm_model, newdata = mtcars_test))
+
+head(predict(mtcars_glm_model, newdata=mtcars_test, type = "prob"))
+
+
+```
+
+  Now we will  test the model using our actual data for this project
+  
+  
+```{r , warning=FALSE, message=FALSE}
+library(VGAM)
+set.seed(26 )
+#corr_data$cost_category <- factorized$cost_category
+train_data_comp$cost_category <- as.factor(train_data_comp$cost_category)
+train_ind <- createDataPartition(train_data_comp$cost_category, p = .8, 
+                                  list = FALSE, times = 1)
+train_set <- train_data_comp[train_ind,]
+test_set <- train_data_comp[-train_ind,]
+
+#nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
+mda_model <- train(form = cost_category ~ info_source + main_activity,data = train_set,trControl = trainControl(method = "cv", number = 5),
+  method = "vglmAdjCat")
+
+mda_model$results
+
+```
+
+  Now let us calculate the accuracy and the probabilities of the given model above.
+  
+```{r , message=FALSE, warning=FALSE}
+calc_acc = function(actual, predicted) {
+  mean(actual == predicted)
+}
+
+#head(predict(nn_model, newdata = test_set))
+
+calc_acc(actual = test_set$cost_category,
+         predicted = predict(mda_model, newdata = test_set))
+
+head(predict(mda_model, newdata=test_set, type = "prob"))
+
+results_table <- predict(mda_model, newdata=test_set, type = "prob")
+
+results_table <- results_table %>%
+  add_column(Tour_ID = test_set$Tour_ID,
+             .before = "High Cost") 
+
+results_table
+
+
+```
+  We then create our submission file for the competition by getting results from our validation set.
+  
+```{r , message=FALSE, warning=FALSE}
+
+head(predict(mda_model, newdata=test_data_comp, type = "prob"))
+
+final_table <- predict(mda_model, newdata=test_data_comp, type = "prob")
+
+final_table <- final_table %>%
+  add_column(Tour_ID = test_data_comp$Tour_ID,
+             .before = "High Cost") 
+
+final_table
+
+write.csv(final_table,file = "final_table.csv")
+
+
+```
