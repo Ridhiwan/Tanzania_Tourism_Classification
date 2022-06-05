@@ -1,0 +1,88 @@
+---
+title: "Tanzania_Tourism_Classisfication_Challenge"
+author: "Ridhiwan Mseya"
+date: "6/2/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Install packages if they dont exist
+
+```{r, warning=FALSE}
+if(!require(tidyverse)) install.packages("tidyverse")
+if(!require(readr)) install.packages("readr")
+
+```
+
+## load libraries and data files
+
+  Get all the files and some of the libraries that we need to analyze data.
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(readr)
+
+VariableDefs <- read_csv("VariableDefinitions.csv")
+test_data <- read_csv("Test.csv")
+Submissionsamp <-read_csv("SampleSubmission.csv")
+train_data <- read_csv("Train.csv")
+```
+
+## Check the data and remove any missing values
+
+
+```{r , warning=FALSE, message=FALSE}
+head(tibble(VariableDefs)) # contains definitions of each variable/column in our data
+head(tibble(train_data)) # The training data for our model which will be split into test and train
+head(tibble(test_data)) # The validation data for our model
+head(tibble(Submissionsamp)) # The probability of each tour_id to be at a given category.
+
+mean(is.na(train_data)) # if not zero then we have some missing values
+mean(is.na(test_data)) # if not zero then we have some missing values
+
+train_data_comp <- na.exclude(train_data) # exclude rows with any NA values
+test_data_comp <- na.exclude(test_data) # exclude rows with any NA values
+
+mean(is.na(train_data_comp)) # if not zero then we have some missing values
+mean(is.na(test_data_comp)) # if not zero then we have some missing values
+
+```
+  The last datasets are complete with no missing values, we can now move on to visualizing our data.
+  
+```{r , message=FALSE, warning=FALSE}
+#plot a graph to visualize the cost category distribution
+
+#factor(train_data_comp$cost_category)
+train_data_comp %>% summarise(cost_category) %>% ggplot(aes(cost_category)) + geom_histogram(stat = "count")
+
+```
+
+  If picked at random the probability of a tourist to be a in given cost category would follow this descending order:
+  
+  Normal Cost -> Higher Cost -> High Cost -> Low Cost -> Lower Cost -> Highest Cost
+  
+  To predict the cost of a single tourist correctly then we will have to investigate the variables and how they affect the cost category. Let us plot a correlation plot to get an initial picture.
+  
+```{r , warning=FALSE, message=FALSE}
+library(corrplot)
+
+# Make all the data numeric for correlation plots
+factorized <- lapply(train_data_comp,as.factor)
+corr_data <- lapply(factorized,as.numeric)
+train_data_corr <- as.data.frame(corr_data)
+
+# plot the graph
+tdr <- cor(train_data_corr)
+corrplot(tdr,type = "upper", order = "hclust")
+```
+
+  The plot shows us that there is positive correlation between packages that tourists buy and that those packages have a negative correlation with the cost category.The higher the cost the more packages have been used. These variables will heavily affect our prediction models when tweaked.
+  
+
+## Machine Learning models
+
+  The criteria in this project will be using the method of log loss.
+  
+
