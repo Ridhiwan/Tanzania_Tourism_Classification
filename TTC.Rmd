@@ -133,15 +133,15 @@ head(predict(mtcars_glm_model, newdata=mtcars_test, type = "prob"))
 library(VGAM)
 set.seed(26 )
 #corr_data$cost_category <- factorized$cost_category
-train_data_comp$cost_category <- as.factor(train_data_comp$cost_category)
-train_ind <- createDataPartition(train_data_comp$cost_category, p = .8, 
+train_data$cost_category <- as.factor(train_data$cost_category)
+train_ind <- createDataPartition(train_data$cost_category, p = .8, 
                                   list = FALSE, times = 1)
-train_set <- train_data_comp[train_ind,]
-test_set <- train_data_comp[-train_ind,]
+train_set <- train_data[train_ind,]
+test_set <- train_data[-train_ind,]
 
 #nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
 mda_model <- train(form = cost_category ~ info_source + main_activity,data = train_set,trControl = trainControl(method = "cv", number = 5),
-  method = "vglmAdjCat")
+  method = "vglmAdjCat" )
 
 mda_model$results
 
@@ -175,17 +175,24 @@ results_table
   
 ```{r , message=FALSE, warning=FALSE}
 
-head(predict(mda_model, newdata=test_data_comp, type = "prob"))
+head(predict(mda_model, newdata=test_data, type = "prob"))
 
-final_table <- predict(mda_model, newdata=test_data_comp, type = "prob")
+final_table <- predict(mda_model, newdata=test_data, type = "prob")
 
 final_table <- final_table %>%
-  add_column(Tour_ID = test_data_comp$Tour_ID,
+  add_column(Tour_ID = test_data$Tour_ID,
              .before = "High Cost") 
 
 final_table
 
-write.csv(final_table,file = "final_table.csv")
+write.csv(final_table,file = "final_table.csv", row.names = FALSE)
 
 
 ```
+  Investigate the final file for missing values
+  
+```{r , warning=FALSE, message=FALSE}
+final_table[final_table$Tour_ID=="tour_idnup62oa8",]
+
+```
+
