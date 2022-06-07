@@ -17,6 +17,8 @@ if(!require(readr)) install.packages("readr")
 if(!require(corrplot)) install.packages("corrplot")
 if(!require(caret)) install.packages("caret")
 if(!require(VGAM)) install.packages("VGAM")
+if(!require(MLmetrics)) install.packages("MLmetrics")
+
 
 ```
 
@@ -101,9 +103,9 @@ mtcars_test <- mtcars[-train_ind,]
 head(mtcars_train)
 head(mtcars_test)
 
-mtcars_glm_model <- train(form = vs ~ wt + disp,data = mtcars_train,
+mtcars_glm_model <- train(form = vs ~ wt + disp + hp ,data = mtcars_train,
   trControl = trainControl(method = "cv", number = 5),
-  method = "glm",family = "binomial")
+  method = "glm",family = "binomial"(link = "logit"))
 
 mtcars_glm_model$results
 
@@ -112,6 +114,8 @@ mtcars_glm_model$results
   Now let us calculate the accuracy and the probabilities of the given model above.
   
 ```{r , message=FALSE, warning=FALSE}
+library(MLmetrics)
+
 calc_acc = function(actual, predicted) {
   mean(actual == predicted)
 }
@@ -120,6 +124,8 @@ head(predict(mtcars_glm_model, newdata = mtcars_test))
 
 calc_acc(actual = mtcars_test$vs,
          predicted = predict(mtcars_glm_model, newdata = mtcars_test))
+
+LogLoss(mtcars_glm_model$finalModel$fitted.values,as.numeric(mtcars_test$vs))
 
 head(predict(mtcars_glm_model, newdata=mtcars_test, type = "prob"))
 
@@ -134,14 +140,17 @@ library(VGAM)
 set.seed(26 )
 #corr_data$cost_category <- factorized$cost_category
 train_data$cost_category <- as.factor(train_data$cost_category)
+levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
 train_ind <- createDataPartition(train_data$cost_category, p = .8, 
                                   list = FALSE, times = 1)
+
+
 train_set <- train_data[train_ind,]
 test_set <- train_data[-train_ind,]
 
 #nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
-mda_model <- train(form = cost_category ~ info_source + main_activity,data = train_set,trControl = trainControl(method = "cv", number = 5),
-  method = "vglmAdjCat" )
+mda_model <- train(form = cost_category ~ info_source + main_activity,data = train_set,trControl = trainControl(method = "cv", number = 5, classProbs = TRUE,  summaryFunction=mnLogLoss),
+  method = "vglmAdjCat", metric = "logLoss")
 
 mda_model$results
 
@@ -150,25 +159,21 @@ mda_model$results
   Now let us calculate the accuracy and the probabilities of the given model above.
   
 ```{r , message=FALSE, warning=FALSE}
-calc_acc = function(actual, predicted) {
-  mean(actual == predicted)
-}
 
 #head(predict(nn_model, newdata = test_set))
 
-calc_acc(actual = test_set$cost_category,
-         predicted = predict(mda_model, newdata = test_set))
-
 head(predict(mda_model, newdata=test_set, type = "prob"))
 
+
 results_table <- predict(mda_model, newdata=test_set, type = "prob")
+
+results_table <- results_table %>% rename(c("High Cost"=High_Cost,"Higher Cost"=Higher_Cost, "Highest Cost"=Highest_Cost, "Low Cost"=Low_Cost, "Lower Cost"=Lower_Cost, "Normal Cost"=Normal_Cost))
 
 results_table <- results_table %>%
   add_column(Tour_ID = test_set$Tour_ID,
              .before = "High Cost") 
 
 results_table
-
 
 ```
   We then create our submission file for the competition by getting results from our validation set.
@@ -178,6 +183,8 @@ results_table
 head(predict(mda_model, newdata=test_data, type = "prob"))
 
 final_table <- predict(mda_model, newdata=test_data, type = "prob")
+
+final_table <- final_table %>% rename(c("High Cost"=High_Cost,"Higher Cost"=Higher_Cost, "Highest Cost"=Highest_Cost, "Low Cost"=Low_Cost, "Lower Cost"=Lower_Cost, "Normal Cost"=Normal_Cost))
 
 final_table <- final_table %>%
   add_column(Tour_ID = test_data$Tour_ID,
