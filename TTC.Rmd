@@ -17,7 +17,7 @@ if(!require(readr)) install.packages("readr")
 if(!require(corrplot)) install.packages("corrplot")
 if(!require(caret)) install.packages("caret")
 if(!require(VGAM)) install.packages("VGAM")
-if(!require(MLmetrics)) install.packages("MLmetrics")
+if(!require(RANN)) install.packages("RANN")
 
 
 ```
@@ -92,8 +92,10 @@ corrplot(tdr,type = "upper", order = "hclust")
   
 ```{r , warning=FALSE, message=FALSE}
 library(caret)
+library(RANN)
 set.seed(28)
 head(mtcars)
+
 mtcars$vs <- as.factor(mtcars$vs)
 train_ind <- createDataPartition(mtcars$vs, p = .8, 
                                   list = FALSE, times = 1)
@@ -102,6 +104,12 @@ mtcars_test <- mtcars[-train_ind,]
 
 head(mtcars_train)
 head(mtcars_test)
+
+preProc <- preProcess(mtcars_train, method='knnImpute')
+preProc
+
+mtcars_train <- predict(preProc, newdata = mtcars_train)
+anyNA(mtcars_train)
 
 mtcars_glm_model <- train(form = vs ~ wt + disp + hp ,data = mtcars_train,
   trControl = trainControl(method = "cv", number = 5),
@@ -114,7 +122,6 @@ mtcars_glm_model$results
   Now let us calculate the accuracy and the probabilities of the given model above.
   
 ```{r , message=FALSE, warning=FALSE}
-library(MLmetrics)
 
 calc_acc = function(actual, predicted) {
   mean(actual == predicted)
@@ -125,11 +132,13 @@ head(predict(mtcars_glm_model, newdata = mtcars_test))
 calc_acc(actual = mtcars_test$vs,
          predicted = predict(mtcars_glm_model, newdata = mtcars_test))
 
-LogLoss(mtcars_glm_model$finalModel$fitted.values,as.numeric(mtcars_test$vs))
-
 head(predict(mtcars_glm_model, newdata=mtcars_test, type = "prob"))
 
 
+```
+
+```{r}
+str(train_data)
 ```
 
   Now we will  test the model using our actual data for this project
@@ -139,8 +148,10 @@ head(predict(mtcars_glm_model, newdata=mtcars_test, type = "prob"))
 library(VGAM)
 set.seed(26 )
 #corr_data$cost_category <- factorized$cost_category
+
 train_data$cost_category <- as.factor(train_data$cost_category)
 levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+
 train_ind <- createDataPartition(train_data$cost_category, p = .8, 
                                   list = FALSE, times = 1)
 
@@ -148,9 +159,19 @@ train_ind <- createDataPartition(train_data$cost_category, p = .8,
 train_set <- train_data[train_ind,]
 test_set <- train_data[-train_ind,]
 
+preProc <- preProcess(as.data.frame(train_set), method = c("center", "scale", "YeoJohnson"))
+preProc
+
+train_set1 <- predict(preProc, newdata = train_set)
+
+anyNA(train_set1)
+
+ctrl<-trainControl(method = "boot632", number=10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
+#grid<-expand.grid(parallel=FALSE, link= "loge") 
+
 #nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
-mda_model <- train(form = cost_category ~ info_source + main_activity,data = train_set,trControl = trainControl(method = "cv", number = 5, classProbs = TRUE,  summaryFunction=mnLogLoss),
-  method = "vglmAdjCat", metric = "logLoss")
+mda_model <- train(form = cost_category ~ info_source + main_activity + package_transport_tz + package_transport_int + package_accomodation + package_food    + package_insurance + tour_arrangement ,data = train_set1, trControl = ctrl,
+  method = "vglmAdjCat", metric = "logLoss", na.action = na.exclude)
 
 mda_model$results
 
