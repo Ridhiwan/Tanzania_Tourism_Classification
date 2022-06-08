@@ -19,8 +19,7 @@ if(!require(caret)) install.packages("caret")
 if(!require(VGAM)) install.packages("VGAM")
 if(!require(RANN)) install.packages("RANN")
 if(!require(RWeka)) install.packages("RWeka")
-if(!require(obliqueRF)) install.packages("obliqueRF")
-
+if(!require(leaps)) install.packages("leaps")
 
 ```
 
@@ -145,14 +144,72 @@ str(train_data)
 
   Now we will  test the model using our actual data for this project
   
+### The most important variables
+
+```{r , warning=FALSE, message=FALSE}
+set.seed(23)
+library(leaps)
+
+train_data$cost_category <- as.factor(train_data$cost_category)
+levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+
+#train_data_f <- data.frame(lapply(train_data[,2:21],factor))
+
+#train_data_sub <- train_data[sample(nrow(train_data),2000),]
+
+x <- model.matrix(cost_category ~ info_source + main_activity + package_transport_tz + package_transport_int + package_accomodation + package_food + package_insurance + tour_arrangement + package_sightseeing + package_guided_tour + country + age_group + purpose + night_mainland + night_zanzibar + first_trip_tz , data = train_data)
+
+y <- train_data$cost_category
+
+length(y)
+ 
+bestmods <- regsubsets(x, y, nbest=1,  method=c("forward", "backward", "seqreq"), nvmax = 15) 
+
+b.summary <- summary(bestmods)
+
+names(b.summary)
+
+plot(b.summary$rsq, xlab="#num", ylab="rsq", type = "l") #8
+plot(b.summary$rss, xlab="#num", ylab="rss", type = "l") #8
+plot(b.summary$adjr2, xlab="#num", ylab="adjr2", type = "l") #8
+plot(b.summary$cp, xlab="#num", ylab="cp", type = "l") #8
+plot(b.summary$bic, xlab="#num", ylab="bic", type = "l") #8
+
+as.tibble(b.summary$which)
+```
+
+By examining the table of best models printed above we will go through the best model which is the last one and eliminate all variables that have only FALSE values and leave those with even one TRUE value.
+
+```{r}
+t <- as.tibble(b.summary$which)
+t[16,]
+```
+
+We should consider excluding the following variables:
+  1. info_source
+  2. package_transport_tz
+  3. package_food
+  4. package_insurance
+  5. package_sightseeing
+  6. package_guided_tour
+  
+We should consider using the following variables in our models:
+  1. main_activity
+  2. package_transport_int
+  3. package_accommodation
+  4. tour_arrangement
+  5. country
+  6. age_group
+  7. purpose
+  8. night_mainland
+  9. night_zanzibar
+  10. first_trip_tz
+  
 ### First Model   
   
 ```{r , warning=FALSE, message=FALSE}
 library(VGAM) # method 'vglmAdjCat' is the one that worked
 set.seed(26 )
-
-train_data$cost_category <- as.factor(train_data$cost_category)
-levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
 
 train_ind <- createDataPartition(train_data$cost_category, p = .8, 
                                   list = FALSE, times = 1)
@@ -196,20 +253,20 @@ train_ind <- createDataPartition(train_data$cost_category, p = .8,
 train_set <- train_data[train_ind,]
 test_set <- train_data[-train_ind,]
 
-preProc <- preProcess(as.data.frame(train_set), method = c("center", "scale", "YeoJohnson"))
-#preProc
+preProc <- preProcess(as.data.frame(train_set), method = c("center", "scale", "YeoJohnson", "BoxCox"))
+preProc
 
 train_set1 <- predict(preProc, newdata = train_set)
 
 #anyNA(train_set1)
 
-ctrl<-trainControl(method = "boot632", number=10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
-grid<-expand.grid(nIter = 121) 
+ctrl<-trainControl(method = "boot632", number=2 , selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
+grid<-expand.grid(nIter = 2) 
 
 
 #nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
-mda_model <- train(form = cost_category ~ info_source + main_activity + package_transport_tz + package_transport_int + package_accomodation + package_food    + package_insurance + tour_arrangement ,data = train_set1, trControl = ctrl,
-  method = "LogitBoost", metric = "logLoss", na.action = na.exclude, tuneGrid = grid)
+mda_model <- train(form = cost_category ~ . ,data = train_set, trControl = ctrl,
+  method = "LogitBoost", metric = "logLoss", na.action = na.exclude)
 
 mda_model$results
 
@@ -244,13 +301,14 @@ grid<-expand.grid(iter = 20)
 
 
 #nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
-mda_model <- train(form = cost_category ~ info_source + main_activity + package_transport_tz + package_transport_int + package_accomodation + package_food    + package_insurance + tour_arrangement ,data = train_set1, trControl = ctrl,
+mda_model <- train(form =  cost_category ~ info_source + main_activity + package_transport_tz + package_transport_int + package_accomodation + package_food    + package_insurance + tour_arrangement,data = train_set1, trControl = ctrl,
   method = "LMT", metric = "logLoss", na.action = na.exclude, tuneGrid=grid)
 
 mda_model$results
 
 ```
 Worked better than the second model but not like the first model.
+
 
 ### Fourth Model
 
@@ -275,12 +333,12 @@ train_set1 <- predict(preProc, newdata = train_set)
 
 #anyNA(train_set1)
 
-ctrl<-trainControl(method = "repeatedcv", number=60, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
+ctrl<-trainControl(method = "repeatedcv", number=10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
 #grid<-expand.grid(iter = 20) 
 
 
 #nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
-mda_model <- train(form = cost_category ~ info_source + main_activity + package_transport_tz + package_transport_int + package_accomodation + package_food    + package_insurance + tour_arrangement ,data = train_set1, trControl = ctrl,
+mda_model <- train(form = cost_category ~ main_activity  + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + night_zanzibar + first_trip_tz ,data = train_set1, trControl = ctrl,
   method = "polr", metric = "logLoss", na.action = na.exclude)
 
 mda_model$results
