@@ -18,6 +18,8 @@ if(!require(corrplot)) install.packages("corrplot")
 if(!require(caret)) install.packages("caret")
 if(!require(VGAM)) install.packages("VGAM")
 if(!require(RANN)) install.packages("RANN")
+if(!require(RWeka)) install.packages("RWeka")
+if(!require(obliqueRF)) install.packages("obliqueRF")
 
 
 ```
@@ -80,7 +82,7 @@ train_data_corr <- as.data.frame(corr_data)
 
 # plot the graph
 tdr <- cor(train_data_corr)
-corrplot(tdr,type = "upper", order = "hclust")
+corrplot(tdr)
 ```
 
   The plot shows us that there is positive correlation between packages that tourists buy and that those packages have a negative correlation with the cost category.The higher the cost the more packages have been used. These variables will heavily affect our prediction models when tweaked.
@@ -143,11 +145,46 @@ str(train_data)
 
   Now we will  test the model using our actual data for this project
   
+### First Model   
   
 ```{r , warning=FALSE, message=FALSE}
-library(VGAM)
+library(VGAM) # method 'vglmAdjCat' is the one that worked
 set.seed(26 )
-#corr_data$cost_category <- factorized$cost_category
+
+train_data$cost_category <- as.factor(train_data$cost_category)
+levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+
+train_ind <- createDataPartition(train_data$cost_category, p = .8, 
+                                  list = FALSE, times = 1)
+
+
+train_set <- train_data[train_ind,]
+test_set <- train_data[-train_ind,]
+
+#preProc <- preProcess(as.data.frame(train_set), method = c("center", "scale", "YeoJohnson"))
+#preProc
+
+#train_set1 <- predict(preProc, newdata = train_set)
+
+#anyNA(train_set1)
+
+ctrl<-trainControl(method = "boot632", number=10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
+#grid<-expand.grid(parallel=FALSE, link= "loge") 
+
+
+#nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
+mda_model <- train(form = cost_category ~ info_source + main_activity + package_transport_tz + package_transport_int + package_accomodation + package_food    + package_insurance + tour_arrangement ,data = train_set, trControl = ctrl,
+  method = "vglmAdjCat", metric = "logLoss")
+
+mda_model$results
+
+```
+
+### Second Model
+
+```{r , warning=FALSE, message=FALSE}
+library(caTools) 
+set.seed(26 )
 
 train_data$cost_category <- as.factor(train_data$cost_category)
 levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
@@ -160,22 +197,133 @@ train_set <- train_data[train_ind,]
 test_set <- train_data[-train_ind,]
 
 preProc <- preProcess(as.data.frame(train_set), method = c("center", "scale", "YeoJohnson"))
-preProc
+#preProc
 
 train_set1 <- predict(preProc, newdata = train_set)
 
-anyNA(train_set1)
+#anyNA(train_set1)
 
 ctrl<-trainControl(method = "boot632", number=10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
-#grid<-expand.grid(parallel=FALSE, link= "loge") 
+grid<-expand.grid(nIter = 121) 
+
 
 #nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
 mda_model <- train(form = cost_category ~ info_source + main_activity + package_transport_tz + package_transport_int + package_accomodation + package_food    + package_insurance + tour_arrangement ,data = train_set1, trControl = ctrl,
-  method = "vglmAdjCat", metric = "logLoss", na.action = na.exclude)
+  method = "LogitBoost", metric = "logLoss", na.action = na.exclude, tuneGrid = grid)
 
 mda_model$results
 
 ```
+The above model has not performed well compared to the first model.
+
+### Third Model
+
+```{r , warning=FALSE, message=FALSE}
+library(RWeka) 
+set.seed(26 )
+
+train_data$cost_category <- as.factor(train_data$cost_category)
+levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+
+train_ind <- createDataPartition(train_data$cost_category, p = .8, 
+                                  list = FALSE, times = 1)
+
+
+train_set <- train_data[train_ind,]
+test_set <- train_data[-train_ind,]
+
+preProc <- preProcess(as.data.frame(train_set), method = c("center", "scale", "YeoJohnson"))
+#preProc
+
+train_set1 <- predict(preProc, newdata = train_set)
+
+#anyNA(train_set1)
+
+ctrl<-trainControl(method = "boot632", number=10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
+grid<-expand.grid(iter = 20) 
+
+
+#nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
+mda_model <- train(form = cost_category ~ info_source + main_activity + package_transport_tz + package_transport_int + package_accomodation + package_food    + package_insurance + tour_arrangement ,data = train_set1, trControl = ctrl,
+  method = "LMT", metric = "logLoss", na.action = na.exclude, tuneGrid=grid)
+
+mda_model$results
+
+```
+Worked better than the second model but not like the first model.
+
+### Fourth Model
+
+```{r , warning=FALSE, message=FALSE}
+library(MASS) 
+set.seed(26 )
+
+train_data$cost_category <- as.factor(train_data$cost_category)
+levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+
+train_ind <- createDataPartition(train_data$cost_category, p = .8, 
+                                  list = FALSE, times = 1)
+
+
+train_set <- train_data[train_ind,]
+test_set <- train_data[-train_ind,]
+
+preProc <- preProcess(as.data.frame(train_set), method = c("center", "scale", "YeoJohnson"))
+#preProc
+
+train_set1 <- predict(preProc, newdata = train_set)
+
+#anyNA(train_set1)
+
+ctrl<-trainControl(method = "repeatedcv", number=60, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
+#grid<-expand.grid(iter = 20) 
+
+
+#nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
+mda_model <- train(form = cost_category ~ info_source + main_activity + package_transport_tz + package_transport_int + package_accomodation + package_food    + package_insurance + tour_arrangement ,data = train_set1, trControl = ctrl,
+  method = "polr", metric = "logLoss", na.action = na.exclude)
+
+mda_model$results
+
+```
+This model computes quickly but its results are the worst compared to all previous models.
+
+### Fourth Model
+
+```{r , warning=FALSE, message=FALSE}
+library(ObliqueRF) 
+set.seed(26 )
+
+train_data$cost_category <- as.factor(train_data$cost_category)
+levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+
+train_ind <- createDataPartition(train_data$cost_category, p = .8, 
+                                  list = FALSE, times = 1)
+
+
+train_set <- train_data[train_ind,]
+test_set <- train_data[-train_ind,]
+
+preProc <- preProcess(as.data.frame(train_set), method = c("center", "scale", "YeoJohnson"))
+#preProc
+
+train_set1 <- predict(preProc, newdata = train_set)
+
+#anyNA(train_set1)
+
+ctrl<-trainControl(method = "cv", number=10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
+#grid<-expand.grid(iter = 20) 
+
+
+#nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
+mda_model <- train(form = cost_category ~ info_source + main_activity + package_transport_tz + package_transport_int + package_accomodation + package_food    + package_insurance + tour_arrangement ,data = train_set1, trControl = ctrl,
+  method = "ORFlog", metric = "logLoss", na.action = na.exclude)
+
+mda_model$results
+
+```
+
+
 
   Now let us calculate the accuracy and the probabilities of the given model above.
   
