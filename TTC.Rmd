@@ -20,6 +20,12 @@ if(!require(VGAM)) install.packages("VGAM")
 if(!require(RANN)) install.packages("RANN")
 if(!require(RWeka)) install.packages("RWeka")
 if(!require(leaps)) install.packages("leaps")
+if(!require(randomForest)) install.packages("randomForest")
+if(!require(ordinalForest)) install.packages("ordinalForest")
+if(!require(ranger)) install.packages("ranger")
+if(!require(e1071)) install.packages("e1071")
+if(!require(Amelia)) install.packages("Amelia")
+
 
 ```
 
@@ -81,7 +87,7 @@ train_data_corr <- as.data.frame(corr_data)
 
 # plot the graph
 tdr <- cor(train_data_corr)
-corrplot(tdr)
+corrplot(tdr,method = "shade",order = "AOE", diag = FALSE, type = "upper", tl.srt = 90,number.font = 0.3, number.cex = 0.3 )
 ```
 
   The plot shows us that there is positive correlation between packages that tourists buy and that those packages have a negative correlation with the cost category.The higher the cost the more packages have been used. These variables will heavily affect our prediction models when tweaked.
@@ -153,7 +159,7 @@ library(leaps)
 train_data$cost_category <- as.factor(train_data$cost_category)
 levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
 
-#train_data_f <- data.frame(lapply(train_data[,2:21],factor))
+#train_data_f <- data.frame(lapply(train_data[,c(2,3,4,7,8,9,10,11,12,13,14,15,16,17,20,21)],factor))
 
 #train_data_sub <- train_data[sample(nrow(train_data),2000),]
 
@@ -183,6 +189,8 @@ By examining the table of best models printed above we will go through the best 
 ```{r}
 t <- as.tibble(b.summary$which)
 t[16,]
+str(train_set)
+str(test_set)
 ```
 
 We should consider excluding the following variables:
@@ -205,10 +213,92 @@ We should consider using the following variables in our models:
   9. night_zanzibar
   10. first_trip_tz
   
-### First Model   
+### Imputation of missing data
   
 ```{r , warning=FALSE, message=FALSE}
+library(Amelia)
+set.seed(26 )
+
+train_data_f <- data.frame(lapply(train_data[,c(2,3,4,7,8,9,10,11,12,13,14,15,16,17,20,21)],factor))
+
+train_data_f <- train_data_f %>%
+  add_column(Tour_ID = train_data$Tour_ID,
+             .before = "country") %>% add_column(total_male=train_data$total_male, .before = "purpose") %>% add_column(total_female=train_data$total_female, .before = "total_male") %>% add_column(night_zanzibar=train_data$night_zanzibar, .before = "first_trip_tz")  %>% add_column(night_mainland=train_data$night_mainland, .before = "night_zanzibar")  
+
+missmap(train_data_f)
+
+
+impute_train_data <- amelia(train_data_f, m=5, idvars = c("Tour_ID","package_accomodation","tour_arrangement","package_sightseeing","package_guided_tour","package_transport_tz","package_transport_int","package_food","total_female","total_male","first_trip_tz","age_group","country","night_mainland","night_zanzibar","info_source","package_insurance","purpose" ), noms = c(4,8), ords = "cost_category")
+
+#head(impute_train_data)
+summary(impute_train_data)
+
+write.amelia(impute_train_data,file.stem = "imputed_train_data")
+
+train_data1 <- read_csv("imputed_train_data1.csv")
+
+train_data1 <- train_data1[,2:22]
+
+head(as.tibble(train_data1))
+
+missmap(train_data1)
+```
+
+
+### First Model
+
+```{r ,warning=FALSE, message=FALSE}
+
 library(VGAM) # method 'vglmAdjCat' is the one that worked
+
+train_ind <- createDataPartition(train_data$cost_category, p = .8, 
+                                  list = FALSE, times = 1)
+
+
+train_set <- train_data1[train_ind,]
+test_set <- train_data1[-train_ind,]
+
+#preProc <- preProcess(as.data.frame(train_set), method = ("knnImpute"))
+#preProc
+
+#train_set <- predict(preProc, newdata = train_set)
+
+#dummyModel <- dummyVars(cost_category ~ main_activity + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + first_trip_tz, data = train_set)
+#train_setX <- as.data.frame(predict(dummyModel, newdata = train_set))
+
+#rangeModel <- preProcess(train_setX, method = "range")
+#train_setX <- predict(rangeModel, newdata = train_setX)
+
+#train_set <- cbind(train_set$cost_category, train_setX)
+#names(train_set)[1] <- "cost_category"
+
+#test_set_imputed <- predict(preProc, test_set)
+#test_set_dummy <- predict(dummyModel, test_set_imputed)
+#test_set_range <- predict(rangeModel, test_set_dummy)
+#test_set_range <- data.frame(test_set_range)
+#test_set <- cbind(test_set$cost_category, test_set_range)
+#names(test_set) <- names(train_set)
+
+anyNA(train_set)
+anyNA(test_set)
+
+ctrl<-trainControl(method = "repeatedcv", number=10 , repeats = 5, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
+#grid<-expand.grid(parallel=FALSE, link= "loge") 
+
+
+#nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
+mda_model <- train(form = cost_category ~  main_activity + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + first_trip_tz ,data = train_set, trControl = ctrl,
+  method = "multinom", metric = "logLoss")
+
+mda_model$results
+
+```
+
+
+### Second Model
+
+```{r , warning=FALSE, message=FALSE}
+library(randomForest)
 set.seed(26 )
 
 train_ind <- createDataPartition(train_data$cost_category, p = .8, 
@@ -225,19 +315,20 @@ test_set <- train_data[-train_ind,]
 
 #anyNA(train_set1)
 
-ctrl<-trainControl(method = "boot632", number=10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
+ctrl<-trainControl(method = "repeatedcv", number=10, repeats = 10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
 #grid<-expand.grid(parallel=FALSE, link= "loge") 
 
 
 #nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
-mda_model <- train(form = cost_category ~ info_source + main_activity + package_transport_tz + package_transport_int + package_accomodation + package_food    + package_insurance + tour_arrangement ,data = train_set, trControl = ctrl,
-  method = "vglmAdjCat", metric = "logLoss")
+mda_model <- train(form = cost_category ~ main_activity + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + first_trip_tz  + package_transport_tz + info_source + package_insurance + package_food ,data = train_set, trControl = ctrl,
+  method = "rf", metric = "logLoss", na.action=na.pass)
 
 mda_model$results
 
+varImp(mda_model)
 ```
 
-### Second Model
+### Second Model two
 
 ```{r , warning=FALSE, message=FALSE}
 library(caTools) 
