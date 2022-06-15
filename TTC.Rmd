@@ -225,13 +225,90 @@ head(as.tibble(test_data1))
 missmap(test_data1)
 ```
 
-.
+  We will now create hot encoding of our data using the caret package and observe if that will improve the results of our models.
+
 
 ```{r}
 # If traindata1 is ever to change then we have traindata11 as a backup which doesnt need any changing
 anyNA(train_data1)
+head(train_data1)
 #train_data11 <- train_data1
+
+library(caret)
+dummy <- dummyVars("cost_category ~  info_source + package_transport_tz + package_food + main_activity + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + night_zanzibar + first_trip_tz + travel_with + package_guided_tour + package_insurance + package_sightseeing", data = train_data1, fullRank = TRUE)
+train_data2 <- data.frame(predict(dummy, newdata=train_data1))
+
+train_data2 <- train_data2 %>% add_column(cost_category = train_data1$cost_category) %>% add_column(total_female = train_data1$total_female) %>% add_column(total_male = train_data1$total_male) %>% add_column(country = train_data1$country)
+
+train_data2$cost_category <- as.factor(train_data2$cost_category)
+levels(train_data2$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+
+anyNA(train_data2)
 ```
+
+  Hot encoding for our validation data.
+
+```{r}
+
+anyNA(test_data1)
+head(test_data1)
+dummy <- dummyVars(" ~  info_source + package_transport_tz + package_food + main_activity + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + night_zanzibar + first_trip_tz + travel_with + package_guided_tour + package_insurance + package_sightseeing", data = train_data1, fullRank = TRUE)
+test_data2 <- data.frame(predict(dummy, newdata=test_data1))
+
+test_data2 <- test_data2 %>% add_column(total_female = test_data1$total_female) %>% add_column(total_male = test_data1$total_male) %>% add_column(country = test_data1$country)
+
+anyNA(test_data2)
+
+test_data2$country <- factor(test_data2$country,levels = c("ITALY","FRANCE","GERMANY","UNITED STATES OF AMERICA","SOUTH AFRICA", "UNITED KINGDOM", "KENYA", "ZAMBIA", "AUSTRALIA","CANADA","ZIMBABWE","UGANDA","SPAIN","INDIA","NETHERLANDS","SWIZERLAND","BELGIUM","SWEDEN","BURUNDI","CHINA", "UAE"))
+test_data2$country <- `levels<-`(addNA(test_data2$country), c(levels(test_data2$country),"OTHERS"))
+str(test_data2)
+```
+
+  We need to add the country column to our data but it has too many levels if factorized. We will device a way to factorize it with a few levels before cheking its importance as a variable in the following steps.
+```{r}
+country_df <- as.data.frame(table(train_data2$country))
+country_df <- country_df[order(country_df$Freq,decreasing=TRUE),]
+country_df[country_df$Freq > 180,]
+
+country_df$Var1 <- factor(country_df$Var1,levels = c("ITALY","FRANCE","GERMANY","UNITED STATES OF AMERICA","SOUTH AFRICA", "UNITED KINGDOM", "KENYA", "ZAMBIA", "AUSTRALIA","CANADA","ZIMBABWE","UGANDA","SPAIN","INDIA","NETHERLANDS","SWIZERLAND","BELGIUM","SWEDEN","BURUNDI","CHINA", "UAE"))
+country_df$Var1 <-`levels<-`(addNA(country_df$Var1), c(levels(country_df$Var1),"OTHERS"))
+str(country_df)
+
+train_data2$country <- factor(train_data2$country,levels = c("ITALY","FRANCE","GERMANY","UNITED STATES OF AMERICA","SOUTH AFRICA", "UNITED KINGDOM", "KENYA", "ZAMBIA", "AUSTRALIA","CANADA","ZIMBABWE","UGANDA","SPAIN","INDIA","NETHERLANDS","SWIZERLAND","BELGIUM","SWEDEN","BURUNDI","CHINA", "UAE"))
+train_data2$country <- `levels<-`(addNA(train_data2$country), c(levels(train_data2$country),"OTHERS"))
+str(train_data2)
+
+```
+
+
+  Now its is time for selecting features to include in our model
+
+```{r}
+# Feature selection
+corr <- lapply(train_data2,as.numeric)
+corMat <- as.data.frame(corr)
+highcor <- findCorrelation(corMat,cutoff = 0.75 , exact = FALSE, names = FALSE)
+highcor
+train_data3 <- train_data2[,-c(33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45, 46, 12, 13)]
+
+ctrl <- rfeControl(functions = rfFuncs, method = "repeatedcv", repeats = 2)
+outcome <- "cost_category"
+predictors <- names(train_data3)[!names(train_data3) %in% outcome]
+pred_prof <- rfe(train_data3[,predictors], train_data3[,outcome], rfeControl = ctrl)
+pred_prof
+
+```
+
+Adding back the tour_ID to both test and train data.
+
+```{r}
+train_data2 <- train_data2 %>% add_column(Tour_ID = train_data1$Tour_ID)
+test_data2 <- test_data2 %>% add_column(Tour_ID = test_data1$Tour_ID)
+
+```
+
+  By accuracy measures it shows that addition features only improves models and we should not exclude them early on.
+
 
 ```{r}
 #memory.size(max = TRUE)
@@ -244,7 +321,7 @@ anyNA(train_data1)
 set.seed(23)
 library(leaps)
 
-#train_data$cost_category <- as.factor(train_data$cost_category)
+train_data$cost_category <- as.factor(train_data$cost_category)
 levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
 
 #train_data_f <- data.frame(lapply(train_data1[,c(2,3,4,7,8,9,10,11,12,13,14,15,16,17,20,21)],factor))
@@ -310,12 +387,12 @@ We should consider using the following variables in our models:
 ```{r ,warning=FALSE, message=FALSE}
 set.seed(29)
 
-train_ind <- createDataPartition(train_data$cost_category, p = .8, 
+train_ind <- createDataPartition(train_data2$cost_category, p = .8, 
                                   list = FALSE, times = 1)
 
 
-train_set <- train_data1[train_ind,]
-test_set <- train_data1[-train_ind,]
+train_set <- train_data2[train_ind,]
+test_set <- train_data2[-train_ind,]
 
 #preProc <- preProcess(as.data.frame(train_set), method = ("knnImpute"))
 #preProc
@@ -343,12 +420,12 @@ anyNA(test_set)
 
 #ctrl<-trainControl(method = "repeatedcv", number=10 , repeats = 5, classProbs = TRUE)
 ctrl<-trainControl(method = "repeatedcv", number=10 , repeats = 5, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
-#grid<-expand.grid(decay=seq(0.3,0.6,by=0.03)) 
+grid<-expand.grid(decay=0.48) 
 
 
 #nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
-mda_model <- train(form = cost_category ~  info_source + package_transport_tz + package_food + main_activity + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + night_zanzibar + first_trip_tz + total_male + total_female  ,data = train_set, trControl = ctrl,
-  method = "multinom", metric="Logloss")
+mda_model <- train(form = cost_category ~  . ,data = train_set, trControl = ctrl,
+  method = "multinom", metric="Logloss", tuneGrid=grid)
 
 mda_model$results
 
@@ -448,7 +525,7 @@ ctrl<-trainControl(method = "repeatedcv", number=3  , repeats = 2, classProbs = 
 
 #nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
 mda_model <- train(form = cost_category ~ info_source + package_transport_tz + package_food + main_activity ,data = train_set, trControl = ctrl,
-  method = "ordinalRF", metric="Logloss")
+  method = "rf", metric="Logloss")
 
 mda_model$results
 ```
@@ -459,8 +536,10 @@ mda_model$results
 library(caTools) 
 set.seed(26 )
 
-#train_data1$cost_category <- as.factor(train_data1$cost_category)
-#levels(train_data1$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+train_data1$cost_category <- as.factor(train_data1$cost_category)
+levels(train_data1$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+
+#train_data1$cost_category <- factor(train_data1$cost_category, ordered = TRUE ,levels = c("Lower_Cost","Low_Cost",  "Normal_Cost","High_Cost","Higher_Cost", "Highest_Cost"))
 
 train_ind <- createDataPartition(train_data1$cost_category, p = .8, 
                                   list = FALSE, times = 1)
@@ -475,7 +554,7 @@ anyNA(test_set)
 #ctrl<-trainControl(method = "repeatedcv", number=5 , repeats = 2, classProbs = TRUE)
 #ctrl<-trainControl(method = "repeatedcv", number=2 , repeats = 2,summaryFunction=mnLogLoss, selectionFunction = "oneSE",classProbs = TRUE)
 ctrl<-trainControl(method = "boot632", number=10 , selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
-grid<-expand.grid(nIter =seq(1,101,by=1))
+grid<-expand.grid(nIter =31)
 
 
 mda_model <- train(form = cost_category ~ info_source + package_transport_tz + package_food + main_activity + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + night_zanzibar + first_trip_tz + total_male + total_female ,data = train_set, trControl = ctrl,
@@ -496,8 +575,7 @@ The above model has not performed well compared to the first model.
 library(RWeka) 
 set.seed(26 )
 
-train_data1$cost_category <- as.factor(train_data1$cost_category)
-levels(train_data1$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+train_data1$cost_category <- factor(train_data1$cost_category, ordered = TRUE ,levels = c("Lower_Cost","Low_Cost","Normal_Cost","High_Cost","Higher_Cost","Highest_Cost"))
 
 train_ind <- createDataPartition(train_data1$cost_category, p = .8, 
                                   list = FALSE, times = 1)
@@ -526,33 +604,30 @@ Worked better than the second model but not like the first model.
 ### Fourth Model
 
 ```{r , warning=FALSE, message=FALSE}
-library(MASS) 
+library(MASS)
+library(e1071)
 set.seed(26 )
 
-train_data$cost_category <- as.factor(train_data$cost_category)
-levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+#train_data1$cost_category <- as.factor(train_data1$cost_category)
+#levels(train_data1$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
 
-train_ind <- createDataPartition(train_data$cost_category, p = .8, 
+train_ind <- createDataPartition(train_data1$cost_category, p = .8, 
                                   list = FALSE, times = 1)
 
 
-train_set <- train_data[train_ind,]
-test_set <- train_data[-train_ind,]
+train_set <- train_data1[train_ind,]
+test_set <- train_data1[-train_ind,]
 
-preProc <- preProcess(as.data.frame(train_set), method = c("center", "scale", "YeoJohnson"))
-#preProc
 
-train_set1 <- predict(preProc, newdata = train_set)
 
-#anyNA(train_set1)
+anyNA(train_set)
 
 ctrl<-trainControl(method = "repeatedcv", number=10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
 #grid<-expand.grid(iter = 20) 
 
 
-#nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
-mda_model <- train(form = cost_category ~ main_activity  + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + night_zanzibar + first_trip_tz ,data = train_set1, trControl = ctrl,
-  method = "polr", metric = "logLoss", na.action = na.exclude)
+mda_model <- train(form = cost_category ~ info_source + package_transport_tz + package_food + main_activity ,data = train_set, trControl = ctrl,
+  method = "svmRadial", metric = "logLoss")
 
 mda_model$results
 
@@ -585,14 +660,14 @@ results_table
   
 ```{r , message=FALSE, warning=FALSE}
 
-head(predict(mda_model, newdata=test_data1, type = "prob"))
+head(predict(mda_model, newdata=test_data2, type = "prob"))
 
-final_table <- predict(mda_model, newdata=test_data1, type = "prob")
+final_table <- predict(mda_model, newdata=test_data2, type = "prob")
 
 final_table <- final_table %>% rename(c("High Cost"=High_Cost,"Higher Cost"=Higher_Cost, "Highest Cost"=Highest_Cost, "Low Cost"=Low_Cost, "Lower Cost"=Lower_Cost, "Normal Cost"=Normal_Cost))
 
 final_table <- final_table %>%
-  add_column(Tour_ID = test_data$Tour_ID,
+  add_column(Tour_ID = test_data2$Tour_ID,
              .before = "High Cost") 
 
 final_table
