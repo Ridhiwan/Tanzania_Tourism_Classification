@@ -25,6 +25,11 @@ if(!require(ordinalForest)) install.packages("ordinalForest")
 if(!require(ranger)) install.packages("ranger")
 if(!require(e1071)) install.packages("e1071")
 if(!require(Amelia)) install.packages("Amelia")
+if(!require(xgboost)) install.packages("xgboost")
+if(!require(caretEnsemble)) install.packages("caretEnsemble")
+if(!require(vbmp)) install.packages("vbmp")
+if(!require(moments)) install.packages("moments")
+
 
 ```
 
@@ -230,6 +235,7 @@ missmap(test_data1)
 
 ```{r}
 # If traindata1 is ever to change then we have traindata11 as a backup which doesnt need any changing
+set.seed(23)
 anyNA(train_data1)
 head(train_data1)
 #train_data11 <- train_data1
@@ -249,7 +255,7 @@ anyNA(train_data2)
   Hot encoding for our validation data.
 
 ```{r}
-
+set.seed(23)
 anyNA(test_data1)
 head(test_data1)
 dummy <- dummyVars(" ~  info_source + package_transport_tz + package_food + main_activity + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + night_zanzibar + first_trip_tz + travel_with + package_guided_tour + package_insurance + package_sightseeing", data = train_data1, fullRank = TRUE)
@@ -259,24 +265,72 @@ test_data2 <- test_data2 %>% add_column(total_female = test_data1$total_female) 
 
 anyNA(test_data2)
 
-test_data2$country <- factor(test_data2$country,levels = c("ITALY","FRANCE","GERMANY","UNITED STATES OF AMERICA","SOUTH AFRICA", "UNITED KINGDOM", "KENYA", "ZAMBIA", "AUSTRALIA","CANADA","ZIMBABWE","UGANDA","SPAIN","INDIA","NETHERLANDS","SWIZERLAND","BELGIUM","SWEDEN","BURUNDI","CHINA", "UAE"))
-test_data2$country <- `levels<-`(addNA(test_data2$country), c(levels(test_data2$country),"OTHERS"))
-str(test_data2)
 ```
 
-  We need to add the country column to our data but it has too many levels if factorized. We will device a way to factorize it with a few levels before cheking its importance as a variable in the following steps.
+
+
+
+
+
+  Check high skewness and correlation of the data the preprocess it for better accuracy of our models. This is crazy actually, we can only preprocess continuos data and that is what I should do with the total female, total male and night_mainland and night_zanzibar.
+```{r , message=FALSE, warning=FALSE}
+set.seed(20)
+library(moments)
+skewness(train_data2[c(33,34,44,45)])
+skewness(test_data2[c(33,34,43,44)])
+
+c4 <- preProcess(train_data2[c(33,34,44,45)], method = c("center","scale","BoxCox","YeoJohnson","zv","nzv"))
+c4_df <- predict(c4,train_data2[c(33,34,44,45)])
+#head(c4_df)
+#skewness(c4_df)
+
+d4 <- preProcess(test_data2[c(33,34,43,44)], method = c("center","scale","BoxCox","YeoJohnson","zv","nzv"))
+d4_df <- predict(d4,test_data2[c(33,34,43,44)])
+#head(d4_df)
+#skewness(d4_df)
+
+train_int <- cbind(train_data2[-c(33,34,44,45)],c4_df)
+#head(train_int)
+
+test_int <- cbind(test_data2[-c(33,34,43,44)],d4_df)
+#head(test_int)
+
+pp_train <- preProcess(train_int[-c(41,42)], method = "corr")
+train_data5 <- predict(pp_train,train_int[-c(41,42)])
+
+pp_test <- preProcess(test_data2[-45], method = "corr")
+test_data5 <- predict(pp_test,test_data2[-45])
+
+
+```
+
+Adding back the tour_ID to both test and train data.
+
 ```{r}
-country_df <- as.data.frame(table(train_data2$country))
-country_df <- country_df[order(country_df$Freq,decreasing=TRUE),]
-country_df[country_df$Freq > 180,]
+train_data5 <- train_data5 %>% add_column(Tour_ID = train_data1$Tour_ID) %>% add_column(cost_category = train_data1$cost_category) %>% add_column(country=train_data1$country)
+test_data5 <- test_data5 %>% add_column(Tour_ID = test_data1$Tour_ID) %>% add_column(country=test_data1$country)
 
-country_df$Var1 <- factor(country_df$Var1,levels = c("ITALY","FRANCE","GERMANY","UNITED STATES OF AMERICA","SOUTH AFRICA", "UNITED KINGDOM", "KENYA", "ZAMBIA", "AUSTRALIA","CANADA","ZIMBABWE","UGANDA","SPAIN","INDIA","NETHERLANDS","SWIZERLAND","BELGIUM","SWEDEN","BURUNDI","CHINA", "UAE"))
-country_df$Var1 <-`levels<-`(addNA(country_df$Var1), c(levels(country_df$Var1),"OTHERS"))
-str(country_df)
+```
 
-train_data2$country <- factor(train_data2$country,levels = c("ITALY","FRANCE","GERMANY","UNITED STATES OF AMERICA","SOUTH AFRICA", "UNITED KINGDOM", "KENYA", "ZAMBIA", "AUSTRALIA","CANADA","ZIMBABWE","UGANDA","SPAIN","INDIA","NETHERLANDS","SWIZERLAND","BELGIUM","SWEDEN","BURUNDI","CHINA", "UAE"))
-train_data2$country <- `levels<-`(addNA(train_data2$country), c(levels(train_data2$country),"OTHERS"))
-str(train_data2)
+
+  We need to add the country column to our data but it has too many levels if factorized. We will device a way to factorize it with a few levels before checking its importance as a variable in the following steps.
+```{r}
+#country_df <- as.data.frame(table(train_data5$country))
+#country_df <- country_df[order(country_df$Freq,decreasing=TRUE),]
+#country_df
+#country_df[country_df$Freq > 180,]
+
+#country_df$Var1 <- factor(country_df$Var1,levels = c("ITALY","FRANCE","GERMANY","UNITED STATES OF AMERICA","SOUTH AFRICA", "UNITED KINGDOM", "KENYA", "ZAMBIA", "AUSTRALIA","CANADA","ZIMBABWE","UGANDA","SPAIN","INDIA","NETHERLANDS","SWIZERLAND","BELGIUM","SWEDEN","BURUNDI","CHINA", "UAE"))
+#country_df$Var1 <-`levels<-`(addNA(country_df$Var1), c(levels(country_df$Var1),"OTHERS"))
+#str(country_df)
+
+train_data5$country <- factor(train_data5$country,levels = c("ITALY","FRANCE","GERMANY","UNITED STATES OF AMERICA","SOUTH AFRICA", "UNITED KINGDOM", "KENYA", "ZAMBIA", "AUSTRALIA","CANADA","ZIMBABWE","UGANDA","SPAIN","INDIA","NETHERLANDS","SWIZERLAND","BELGIUM","SWEDEN","BURUNDI","CHINA", "UAE"))
+train_data5$country <- `levels<-`(addNA(train_data5$country), c(levels(train_data5$country),"OTHERS"))
+str(train_data5)
+
+test_data5$country <- factor(test_data5$country,levels = c("ITALY","FRANCE","GERMANY","UNITED STATES OF AMERICA","SOUTH AFRICA", "UNITED KINGDOM", "KENYA", "ZAMBIA", "AUSTRALIA","CANADA","ZIMBABWE","UGANDA","SPAIN","INDIA","NETHERLANDS","SWIZERLAND","BELGIUM","SWEDEN","BURUNDI","CHINA", "UAE"))
+test_data5$country <- `levels<-`(addNA(test_data5$country), c(levels(test_data5$country),"OTHERS"))
+str(test_data5)
 
 ```
 
@@ -285,25 +339,17 @@ str(train_data2)
 
 ```{r}
 # Feature selection
-corr <- lapply(train_data2,as.numeric)
+corr <- lapply(train_data5,as.numeric)
 corMat <- as.data.frame(corr)
-highcor <- findCorrelation(corMat,cutoff = 0.75 , exact = FALSE, names = FALSE)
+highcor <- findCorrelation(corMat,cutoff = 0.9 , exact = FALSE, names = TRUE)
 highcor
-train_data3 <- train_data2[,-c(33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45, 46, 12, 13)]
+#train_data3 <- train_data2[,-c(33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45, 46, 12, 13)]
 
-ctrl <- rfeControl(functions = rfFuncs, method = "repeatedcv", repeats = 2)
-outcome <- "cost_category"
-predictors <- names(train_data3)[!names(train_data3) %in% outcome]
-pred_prof <- rfe(train_data3[,predictors], train_data3[,outcome], rfeControl = ctrl)
-pred_prof
-
-```
-
-Adding back the tour_ID to both test and train data.
-
-```{r}
-train_data2 <- train_data2 %>% add_column(Tour_ID = train_data1$Tour_ID)
-test_data2 <- test_data2 %>% add_column(Tour_ID = test_data1$Tour_ID)
+#ctrl <- rfeControl(functions = rfFuncs, method = "repeatedcv", repeats = 2)
+#outcome <- "cost_category"
+#predictors <- names(train_data3)[!names(train_data3) %in% outcome]
+#pred_prof <- rfe(train_data3[,predictors], train_data3[,outcome], rfeControl = ctrl)
+#pred_prof
 
 ```
 
@@ -318,23 +364,39 @@ test_data2 <- test_data2 %>% add_column(Tour_ID = test_data1$Tour_ID)
 ### The most important variables
 
 ```{r , warning=FALSE, message=FALSE}
+train_data4 <- train_data5
+names(train_data4)[1:45] <- paste("var",1:45,sep="")
+names(train_data4)[44] <- "cost_category"
+names(train_data4)[43] <- "Tour_ID"
+names(train_data4)
+
+train_data4$cost_category <- as.factor(train_data4$cost_category)
+levels(train_data4$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+
+
+test_data4 <- test_data5
+names(test_data4)[1:45] <- paste("var",1:45,sep="")
+names(test_data4)[44] <- "Tour_ID"
+names(test_data4)
+```
+
+```{r , warning=FALSE, message=FALSE}
 set.seed(23)
 library(leaps)
-
-train_data$cost_category <- as.factor(train_data$cost_category)
-levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+#train_data$cost_category <- as.factor(train_data$cost_category)
+#levels(train_data$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
 
 #train_data_f <- data.frame(lapply(train_data1[,c(2,3,4,7,8,9,10,11,12,13,14,15,16,17,20,21)],factor))
 
 #train_data_sub <- train_data[sample(nrow(train_data),2000),]
 
-x <- model.matrix(cost_category ~ info_source + package_transport_tz + package_food + package_insurance + package_sightseeing + package_guided_tour + main_activity + package_transport_int + package_accomodation + tour_arrangement + country + age_group + purpose + night_mainland + night_zanzibar + first_trip_tz , data = train_data1)
+x <- model.matrix(cost_category ~ . , data = train_data4)
 
-y <- train_data1$cost_category
+y <- train_data4$cost_category
 
-length(y)
+#length(y)
  
-bestmods <- regsubsets(x, y, nbest=1,  method=c("forward", "backward", "seqreq"), nvmax = 16) 
+bestmods <- regsubsets(x, y, nbest=1,  method=c("exhaustive","forward", "backward", "seqreq"), nvmax = 45) 
 
 b.summary <- summary(bestmods)
 
@@ -346,8 +408,29 @@ plot(b.summary$adjr2, xlab="#num", ylab="adjr2", type = "l") #8
 plot(b.summary$cp, xlab="#num", ylab="cp", type = "l") #8
 plot(b.summary$bic, xlab="#num", ylab="bic", type = "l") #8
 
-as.tibble(b.summary$which)
+df <- as.tibble(b.summary$which)
+df
+as.data.frame(colMeans(df))
 ```
+
+```{r}
+df_sort <- as.data.frame(colMeans(df))
+df_sort <- df_sort %>% add_column(var = 1:42)
+names(df_sort)[1] <- "mean"
+df_sort
+df_sort[order(-df_sort$mean),]
+```
+
+
+```{r}
+set.seed(22)
+mod  <- train(cost_category ~ ., data = train_data4[c(40:45)], method = "RRF")
+varImp(mod)
+
+```
+
+ A list of 26 variables in train_data4 with the most contribution to prediction are:
+ var(8,9,19,24,7,29,15,17,22,27,31,36,37,38,39,40,41,42.45)
 
 
 By examining the table of best models printed above we will go through the best model which is the last one and eliminate all variables that have only FALSE values and leave those with even one TRUE value
@@ -355,8 +438,10 @@ By examining the table of best models printed above we will go through the best 
 ```{r}
 t <- as.tibble(b.summary$which)
 t[16,]
-str(train_set)
-str(test_set)
+#str(train_set)
+#str(test_set)
+
+my_form <- as.formula(paste("cost_category ~ ", paste(paste0("var",c(8,9,19,24,7,29,15,17,22,27,31,36,37,38,39,40,41,42,45)), collapse = "+")))
 ```
 
 We should consider excluding the following variables:
@@ -387,12 +472,12 @@ We should consider using the following variables in our models:
 ```{r ,warning=FALSE, message=FALSE}
 set.seed(29)
 
-train_ind <- createDataPartition(train_data2$cost_category, p = .8, 
+train_ind <- createDataPartition(train_data4$cost_category, p = .8, 
                                   list = FALSE, times = 1)
 
-
-train_set <- train_data2[train_ind,]
-test_set <- train_data2[-train_ind,]
+#train_set <- train_data4[train_ind,]
+#test_set <- train_data4[-train_ind,]
+train_set <- train_data4
 
 #preProc <- preProcess(as.data.frame(train_set), method = ("knnImpute"))
 #preProc
@@ -419,15 +504,15 @@ anyNA(train_set)
 anyNA(test_set)
 
 #ctrl<-trainControl(method = "repeatedcv", number=10 , repeats = 5, classProbs = TRUE)
-ctrl<-trainControl(method = "repeatedcv", number=10 , repeats = 5, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
-grid<-expand.grid(decay=0.48) 
+ctrl<-trainControl(method = "repeatedcv", number=4 , repeats = 4, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss, savePredictions = "final")
+grid<-expand.grid(decay=seq(0,1,by=0.1)) 
 
 
 #nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
-mda_model <- train(form = cost_category ~  . ,data = train_set, trControl = ctrl,
-  method = "multinom", metric="Logloss", tuneGrid=grid)
+mltn_model <- train(form = my_form ,data = train_set, trControl = ctrl,
+  method = "multinom", metric="Logloss", maxit=1000, tuneGrid=grid)
 
-mda_model$results
+mltn_model$results
 
 ```  
 
@@ -444,12 +529,13 @@ set.seed(29)
 library(VGAM) # method 'vglmAdjCat' is the one that worked
 
 
-train_ind <- createDataPartition(train_data$cost_category, p = .8, 
+
+train_ind <- createDataPartition(train_data4$cost_category, p = .8, 
                                   list = FALSE, times = 1)
 
 
-train_set <- train_data1[train_ind,]
-test_set <- train_data1[-train_ind,]
+train_set <- train_data4[train_ind,]
+test_set <- train_data4[-train_ind,]
 
 #preProc <- preProcess(as.data.frame(train_set), method = ("knnImpute"))
 #preProc
@@ -475,14 +561,13 @@ test_set <- train_data1[-train_ind,]
 anyNA(train_set)
 anyNA(test_set)
 
-ctrl<-trainControl(method = "repeatedcv", number=10 , repeats = 5, classProbs = TRUE)
-#ctrl<-trainControl(method = "repeatedcv", number=10 , repeats = 5, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
+#ctrl<-trainControl(method = "repeatedcv", number=10 , repeats = 5, classProbs = TRUE)
+ctrl<-trainControl(method = "repeatedcv", number=1 , repeats = 2, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss, savePredictions = "final")
 #grid<-expand.grid(parallel=FALSE, link= "loge") 
 
 
-#nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
-mda_model <- train(form = cost_category ~  info_source + package_transport_tz + package_food + main_activity + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + night_zanzibar + first_trip_tz + total_male + total_female  ,data = train_set, trControl = ctrl,
-  method = "vglmAdjCat")
+mda_model <- train(form= cost_category ~ .,data = train_set, trControl = ctrl,
+  method = "manb", metric="logLoss")
 
 mda_model$results
 
@@ -493,21 +578,24 @@ mda_model$results
 ### Second Model
 
 ```{r , warning=FALSE, message=FALSE}
+set.seed(26 )
 library(randomForest)
 library(e1071)
 library(ranger)
 library(ordinalForest)
-set.seed(26 )
+library(xgboost)
+library(maboost)
 
-train_data1$cost_category <- as.factor(train_data$cost_category)
-levels(train_data1$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
 
-train_ind <- createDataPartition(train_data1$cost_category, p = .8, 
+#train_data1$cost_category <- as.factor(train_data$cost_category)
+#levels(train_data1$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+
+train_ind <- createDataPartition(train_data4$cost_category, p = .8, 
                                   list = FALSE, times = 1)
 
 
-train_set <- train_data1[train_ind,]
-test_set <- train_data1[-train_ind,]
+train_set <- train_data4[train_ind,]
+test_set <- train_data4[-train_ind,]
 
 #preProc <- preProcess(as.data.frame(train_set), method = c("center", "scale", "YeoJohnson"))
 #preProc
@@ -517,17 +605,17 @@ test_set <- train_data1[-train_ind,]
 anyNA(train_set)
 anyNA(test_set)
 
-ctrl<-trainControl(method = "repeatedcv", number=3  , repeats = 2, classProbs = TRUE, search = "grid", selectionFunction = "oneSE",  summaryFunction=mnLogLoss)
+ctrl<-trainControl(method = "repeatedcv", number=3  , repeats = 2, classProbs = TRUE, search = "grid", selectionFunction = "oneSE",  summaryFunction=mnLogLoss, savePredictions = "final")
 #mtry <- sqrt(ncol(x))
 #ctrl<-trainControl(method = "repeatedcv", number=5, repeats = 2, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
-#grid<-expand.grid(.mtry=c(1:16)) 
+#grid<-expand.grid(C50tree=TRUE) 
 
 
 #nn_model <- nnet::multinom(cost_category ~ ., data= train_set)
-mda_model <- train(form = cost_category ~ info_source + package_transport_tz + package_food + main_activity ,data = train_set, trControl = ctrl,
-  method = "rf", metric="Logloss")
+xg_model <- train(form = my_form ,data = train_set, trControl = ctrl,
+  method = "xgbTree", metric="Logloss", tuneLength=10)
 
-mda_model$results
+xg_model$results
 ```
 
 ### Second Model two
@@ -536,31 +624,33 @@ mda_model$results
 library(caTools) 
 set.seed(26 )
 
-train_data1$cost_category <- as.factor(train_data1$cost_category)
-levels(train_data1$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
+
+#train_data1$cost_category <- as.factor(train_data1$cost_category)
+#levels(train_data1$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
 
 #train_data1$cost_category <- factor(train_data1$cost_category, ordered = TRUE ,levels = c("Lower_Cost","Low_Cost",  "Normal_Cost","High_Cost","Higher_Cost", "Highest_Cost"))
 
-train_ind <- createDataPartition(train_data1$cost_category, p = .8, 
+train_ind <- createDataPartition(train_data4$cost_category, p = .8, 
                                   list = FALSE, times = 1)
 
 
-train_set <- train_data1[train_ind,]
-test_set <- train_data1[-train_ind,]
+train_set <- train_data4[train_ind,]
+test_set <- train_data4[-train_ind,]
+
+#train_set <- train_data4
 
 anyNA(train_set)
 anyNA(test_set)
 
 #ctrl<-trainControl(method = "repeatedcv", number=5 , repeats = 2, classProbs = TRUE)
-#ctrl<-trainControl(method = "repeatedcv", number=2 , repeats = 2,summaryFunction=mnLogLoss, selectionFunction = "oneSE",classProbs = TRUE)
-ctrl<-trainControl(method = "boot632", number=10 , selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
-grid<-expand.grid(nIter =31)
+ctrl<-trainControl(method = "repeatedcv", number=3 , repeats = 2,summaryFunction=mnLogLoss, selectionFunction = "oneSE",classProbs = TRUE, savePredictions = "final")
+#ctrl<-trainControl(method = "boot632", number=10 , selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
+#grid<-expand.grid(nIter =31)
 
+lgt_model <- train(form = my_form  ,data = train_set, trControl = ctrl,
+  method = "LogitBoost", metric = "Logloss")
 
-mda_model <- train(form = cost_category ~ info_source + package_transport_tz + package_food + main_activity + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + night_zanzibar + first_trip_tz + total_male + total_female ,data = train_set, trControl = ctrl,
-  method = "LogitBoost", metric = "Logloss", tuneGrid=grid)
-
-mda_model$results
+lgt_model$results
 
 ```
 
@@ -575,27 +665,27 @@ The above model has not performed well compared to the first model.
 library(RWeka) 
 set.seed(26 )
 
-train_data1$cost_category <- factor(train_data1$cost_category, ordered = TRUE ,levels = c("Lower_Cost","Low_Cost","Normal_Cost","High_Cost","Higher_Cost","Highest_Cost"))
+#train_data1$cost_category <- factor(train_data2$cost_category, ordered = TRUE ,levels = c("Lower_Cost","Low_Cost","Normal_Cost","High_Cost","Higher_Cost","Highest_Cost"))
 
-train_ind <- createDataPartition(train_data1$cost_category, p = .8, 
+train_ind <- createDataPartition(train_data4$cost_category, p = .8, 
                                   list = FALSE, times = 1)
 
 
-train_set <- train_data1[train_ind,]
-test_set <- train_data1[-train_ind,]
+train_set <- train_data4[train_ind,]
+test_set <- train_data4[-train_ind,]
 
 
 #anyNA(train_set1)
 
-ctrl<-trainControl(method = "repeatedcv", number=3  , repeats = 2, classProbs = TRUE, selectionFunction = "oneSE",  summaryFunction=mnLogLoss)
+ctrl<-trainControl(method = "repeatedcv", number=3  , repeats = 2, classProbs = TRUE, selectionFunction = "oneSE",  summaryFunction=mnLogLoss, savePredictions = "final")
 #ctrl<-trainControl(method = "boot632", number=10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
-grid<-expand.grid(data.frame(.iter = c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19))) 
+#grid<-expand.grid(data.frame(.iter = 4))
 
 
-mda_model <- train(form =  cost_category ~ info_source + package_transport_tz + package_food + main_activity + package_transport_int + package_accomodation + tour_arrangement + age_group + purpose + night_mainland + night_zanzibar + first_trip_tz + total_male + total_female,data = train_set, trControl = ctrl,
-  method = "LMT", metric = "logLoss", na.action=na.pass, tuneGrid=grid)
+lmt_model <- train(form =  my_form,data = train_set, trControl = ctrl,
+  method = "LMT", metric = "logLoss", tuneLength = 3)
 
-mda_model$results
+lmt_model$results
 
 ```
 Worked better than the second model but not like the first model.
@@ -611,28 +701,90 @@ set.seed(26 )
 #train_data1$cost_category <- as.factor(train_data1$cost_category)
 #levels(train_data1$cost_category) <- c("High_Cost","Higher_Cost", "Highest_Cost", "Low_Cost", "Lower_Cost", "Normal_Cost")
 
-train_ind <- createDataPartition(train_data1$cost_category, p = .8, 
+train_ind <- createDataPartition(train_data4$cost_category, p = .8, 
                                   list = FALSE, times = 1)
 
 
-train_set <- train_data1[train_ind,]
-test_set <- train_data1[-train_ind,]
+train_set <- train_data4[train_ind,]
+test_set <- train_data4[-train_ind,]
 
 
 
 anyNA(train_set)
 
-ctrl<-trainControl(method = "repeatedcv", number=10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss)
-#grid<-expand.grid(iter = 20) 
+ctrl<-trainControl(method = "repeatedcv", number=3,repeats = 2, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss, savePredictions = "final")
+#grid<-expand.grid(maxiter = 20) 
 
 
-mda_model <- train(form = cost_category ~ info_source + package_transport_tz + package_food + main_activity ,data = train_set, trControl = ctrl,
-  method = "svmRadial", metric = "logLoss")
+nnet_model <- train(form = my_form, trControl = ctrl,
+  method = "nnet", metric = "logLoss", tuneLength=2,data=train_set, maxit=1000)
 
-mda_model$results
+nnet_model$results
 
 ```
 This model computes quickly but its results are the worst compared to all previous models.
+
+```{r , message=FALSE, warning=FALSE}
+mdls_compare <- resamples(list(MLT=mltn_model,LGB=lgt_model,XGB=xg_model,NET=nnet_model,LMT=lmt_model))
+summary(mdls_compare)
+scales <- list(x=list(relation="free"), y=list(relation="free"))
+bwplot(mdls_compare,scales=scales )
+```
+  create an ensembled model
+  
+```{r ,warning=FALSE, message=FALSE}
+library(caretEnsemble)
+ctrl1 <- trainControl(method = "repeatedcv",number = 3, repeats = 2, savePredictions = TRUE)
+algolst  <- c("multinom","LogitBoost","xgbTree","nnet","LMT")
+
+set.seed(25)
+
+mdls <- caretList(my_form,trControl=ctrl1,methodList=algolst,data=train_data4)
+rslts <- resamples(mdls)
+summary(rslts)
+scales <- list(x=list(relation="free"), y=list(relation="free"))
+bwplot(rslts,scales=scales)
+```
+  Ensemble prediction
+```{r}
+#check for models with very high correlations
+modelCor(rslts)
+#Combinations to consider: 1. (nnet,multinom) 2. (LMT,xgbTree) 3.(LMT,nnet)
+
+#ctrl2 <- trainControl(method = "boot632", number=10, selectionFunction = "oneSE", classProbs = TRUE,  summaryFunction=mnLogLoss, )
+#glm_ens <- caretStack(mdls,method="glm",metric="Logloss")
+#glm_ens$results
+
+trainSet <- train_set
+testSet <- test_set
+
+mltn_pred <- mltn_model$pred
+nnet_pred <- nnet_model$pred
+lmt_pred <- lmt_model$pred
+
+mltn_pred2 <- mltn_pred[mltn_pred$Resample %in% c("Fold1.Rep2","Fold2.Rep2","Fold3.Rep2"),  ]
+nnet_pred2 <- nnet_pred[nnet_pred$Resample %in% c("Fold1.Rep2","Fold2.Rep2","Fold3.Rep2"),  ]
+lmt_pred2 <- lmt_pred[lmt_pred$Resample %in% c("Fold1.Rep2","Fold2.Rep2","Fold3.Rep2"),  ]
+
+trainSet$OOF_pred_mltn <- mltn_pred2$pred[order(mltn_pred2$rowIndex)]
+trainSet$OOF_pred_nnet <- nnet_pred2$pred[order(nnet_pred2$rowIndex)]
+trainSet$OOF_pred_lmt <- lmt_pred2$pred[order(lmt_pred2$rowIndex)]
+
+# predictors for the top layer model
+predictors_top <- c("OOF_pred_mltn","OOF_pred_nnet","OOF_pred_lmt")
+
+# Logitboost as top layer
+head(trainSet[,predictors_top])
+head(trainSet[,"cost_category"])
+
+ctrl<-trainControl(method = "repeatedcv", number=3 , repeats = 2,summaryFunction=mnLogLoss, selectionFunction = "oneSE",classProbs = TRUE, savePredictions = "final")
+
+lgt_ens <- train(trainSet[,predictors_top],trainSet[,"cost_category"],  trControl = ctrl,method = "nnet", metric = "Logloss", tuneLength=3, maxit = 1000)
+
+lgt_ens$results
+
+```
+
 
 
 
@@ -642,10 +794,10 @@ This model computes quickly but its results are the worst compared to all previo
 
 #head(predict(nn_model, newdata = test_set))
 
-head(predict(mda_model, newdata=test_set, type = "prob"))
+head(predict(mltn_model, newdata=test_set, type = "prob"))
 
 
-results_table <- predict(mda_model, newdata=test_set, type = "prob")
+results_table <- predict(mltn_model, newdata=test_set, type = "prob")
 
 results_table <- results_table %>% rename(c("High Cost"=High_Cost,"Higher Cost"=Higher_Cost, "Highest Cost"=Highest_Cost, "Low Cost"=Low_Cost, "Lower Cost"=Lower_Cost, "Normal Cost"=Normal_Cost))
 
@@ -660,14 +812,14 @@ results_table
   
 ```{r , message=FALSE, warning=FALSE}
 
-head(predict(mda_model, newdata=test_data2, type = "prob"))
+head(predict(lgt_model, newdata=test_data4, type = "prob"))
 
-final_table <- predict(mda_model, newdata=test_data2, type = "prob")
+final_table <- predict(lgt_model, newdata=test_data4, type = "prob")
 
 final_table <- final_table %>% rename(c("High Cost"=High_Cost,"Higher Cost"=Higher_Cost, "Highest Cost"=Highest_Cost, "Low Cost"=Low_Cost, "Lower Cost"=Lower_Cost, "Normal Cost"=Normal_Cost))
 
 final_table <- final_table %>%
-  add_column(Tour_ID = test_data2$Tour_ID,
+  add_column(Tour_ID = test_data4$Tour_ID,
              .before = "High Cost") 
 
 final_table
